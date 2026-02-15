@@ -121,7 +121,19 @@ def cleanup_old_embeddings_task(self, days: int = 90):
         
         return {"deleted_count": deleted_count}
         
-    except Exception as e:
-        logger.error(f"Error cleaning up embeddings: {e}")
         self.db.rollback()
         raise
+
+def run_sync_embeddings(conversation_id: str):
+    """
+    Run embedding generation synchronously (in-process)
+    Used when Celery is not available (e.g. free tier)
+    """
+    db = SessionLocal()
+    try:
+        service = EmbeddingService(db)
+        service.generate_embeddings_for_conversation(conversation_id)
+    except Exception as e:
+        logger.error(f"Error in sync embedding generation: {e}")
+    finally:
+        db.close()

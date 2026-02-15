@@ -16,7 +16,7 @@ from app.schemas.conversation import (
     ConversationBatchResponse,
     MessageResponse
 )
-from app.tasks.embedding_tasks import generate_embeddings_task
+from app.tasks.embedding_tasks import generate_embeddings_task, run_sync_embeddings
 
 router = APIRouter()
 
@@ -64,9 +64,9 @@ async def create_conversation(
     db.refresh(conversation)
     
     # Trigger background embedding generation
-    background_tasks.add_task(
-        lambda: generate_embeddings_task.delay(str(conversation.id))
-    )
+    # Trigger background embedding generation
+    # Use sync generation for free tier compatibility (run in background task)
+    background_tasks.add_task(run_sync_embeddings, str(conversation.id))
     
     # Load messages for response
     conversation.messages = db.query(Message).filter(
@@ -170,9 +170,8 @@ async def batch_create_conversations(
                 created_count += 1
                 
                 # Trigger embedding generation
-                background_tasks.add_task(
-                    lambda cid=str(conversation.id): generate_embeddings_task.delay(cid)
-                )
+                # Use sync generation for free tier compatibility (run in background task)
+                background_tasks.add_task(run_sync_embeddings, str(conversation.id))
                 
         except Exception as e:
             print(f"Failed to process conversation: {e}")

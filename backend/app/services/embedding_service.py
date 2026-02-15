@@ -26,6 +26,38 @@ class EmbeddingService:
             self.model = SentenceTransformer(self.model_name)
         return self.model
     
+    
+    def generate_embeddings_for_conversation(self, conversation_id: str) -> Dict:
+        """
+        Generate embeddings for all messages in a conversation
+        """
+        logger.info(f"Generating embeddings for conversation {conversation_id}")
+        
+        # Get conversation with messages
+        conversation = self.db.query(Conversation).filter(
+            Conversation.id == conversation_id
+        ).first()
+        
+        if not conversation:
+            logger.error(f"Conversation {conversation_id} not found")
+            return {"error": "Conversation not found"}
+        
+        generated_count = 0
+        for message in conversation.messages:
+            try:
+                self.generate_embedding(message.id)
+                generated_count += 1
+            except Exception as e:
+                logger.error(f"Failed to generate embedding for message {message.id}: {e}")
+                
+        logger.info(f"Generated {generated_count} embeddings for conversation {conversation_id}")
+        
+        return {
+            "conversation_id": str(conversation_id),
+            "embeddings_generated": generated_count,
+            "total_messages": len(conversation.messages)
+        }
+
     def generate_embedding(self, message_id: str) -> Embedding:
         """
         Generate embedding for a single message
