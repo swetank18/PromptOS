@@ -20,10 +20,9 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Startup and shutdown events"""
     logger.info("Starting AI Conversation Capture API")
-    # Create tables if they don't exist (for development)
-    # In production, use Alembic migrations
-    if settings.DEBUG:
-        Base.metadata.create_all(bind=engine)
+    # Create tables if they don't exist
+    # In production, use Alembic migrations (but for now, auto-create)
+    Base.metadata.create_all(bind=engine)
     yield
     logger.info("Shutting down API")
 
