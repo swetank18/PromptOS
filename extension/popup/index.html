@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Conversation Capture</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>💾 AI Capture</h1>
+            <div id="status-indicator" class="status offline">
+                <span class="dot"></span>
+                <span id="status-text">Offline</span>
+            </div>
+        </header>
+
+        <div id="auth-section" class="section">
+            <div id="login-form">
+                <h2>Sign In</h2>
+                <input type="email" id="email" placeholder="Email" />
+                <input type="password" id="password" placeholder="Password" />
+                <button id="login-btn" class="btn-primary">Sign In</button>
+                <p class="link" id="show-register">Don't have an account? Register</p>
+            </div>
+
+            <div id="register-form" style="display: none;">
+                <h2>Register</h2>
+                <input type="text" id="reg-name" placeholder="Full Name" />
+                <input type="email" id="reg-email" placeholder="Email" />
+                <input type="password" id="reg-password" placeholder="Password" />
+                <button id="register-btn" class="btn-primary">Register</button>
+                <p class="link" id="show-login">Already have an account? Sign In</p>
+            </div>
+        </div>
+
+        <div id="main-section" class="section" style="display: none;">
+            <div class="stats">
+                <div class="stat-card">
+                    <div class="stat-value" id="queue-count">0</div>
+                    <div class="stat-label">Queued</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="sync-status">Never</div>
+                    <div class="stat-label">Last Sync</div>
+                </div>
+            </div>
+
+            <div class="actions">
+                <button id="sync-btn" class="btn-primary">
+                    <span>🔄 Sync Now</span>
+                </button>
+                <button id="capture-btn" class="btn-secondary">
+                    <span>💾 Capture Current</span>
+                </button>
+            </div>
+
+            <div class="settings">
+                <h3>Settings</h3>
+                
+                <label class="toggle">
+                    <input type="checkbox" id="auto-sync" checked />
+                    <span>Auto Sync</span>
+                </label>
+
+                <div class="form-group">
+                    <label for="project-select">Default Project</label>
+                    <select id="project-select">
+                        <option value="">None</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="api-url">API URL</label>
+                    <input type="text" id="api-url" value="http://localhost:8000" />
+                </div>
+            </div>
+
+            <button id="logout-btn" class="btn-text">Sign Out</button>
+        </div>
+
+        <div id="message" class="message"></div>
+    </div>
+
+    <script src="popup.js"></script>
+</body>
+</html>
