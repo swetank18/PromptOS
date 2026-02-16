@@ -150,11 +150,30 @@ async function handleCapture() {
     try {
         // Get current tab
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        const url = tab?.url || '';
+        const scriptFile = getScriptForUrl(url);
 
-        // Send message to content script
-        const response = await chrome.tabs.sendMessage(tab.id, {
-            type: 'CAPTURE_NOW'
-        });
+        if (!scriptFile) {
+            showMessage('Open a ChatGPT, Claude, or Gemini conversation tab first.', 'error');
+            return;
+        }
+
+        let response = null;
+        try {
+            response = await chrome.tabs.sendMessage(tab.id, { type: 'CAPTURE_NOW' });
+        } catch (sendErr) {
+            const msg = String(sendErr?.message || sendErr || '');
+            if (!msg.includes('Receiving end does not exist')) {
+                throw sendErr;
+            }
+
+            // Content script wasn't active. Inject and retry.
+            await chrome.scripting.executeScript({
+                target: { tabId: tab.id },
+                files: [scriptFile],
+            });
+            response = await chrome.tabs.sendMessage(tab.id, { type: 'CAPTURE_NOW' });
+        }
 
         if (!response) {
             showMessage('No response from page. Refresh the tab and try again.', 'error');
@@ -172,6 +191,21 @@ async function handleCapture() {
         btn.disabled = false;
         btn.innerHTML = '<span>💾 Capture Current</span>';
     }
+}
+
+function getScriptForUrl(url) {
+    if (!url || typeof url !== 'string') return null;
+
+    if (url.includes('chat.openai.com') || url.includes('chatgpt.com')) {
+        return 'content/chatgpt.js';
+    }
+    if (url.includes('claude.ai')) {
+        return 'content/claude.js';
+    }
+    if (url.includes('gemini.google.com')) {
+        return 'content/gemini.js';
+    }
+    return null;
 }
 
 async function handleAutoSyncToggle(e) {
