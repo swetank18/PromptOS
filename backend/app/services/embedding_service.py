@@ -5,7 +5,7 @@ import numpy as np
 import logging
 
 from app.core.config import settings
-from app.models.conversation import Message
+from app.models.conversation import Message, Conversation
 from app.models.embedding import Embedding
 
 logger = logging.getLogger(__name__)

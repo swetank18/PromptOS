@@ -96,17 +96,16 @@ def cleanup_old_embeddings_task(self, days: int = 90):
     
     try:
         from datetime import datetime, timedelta
-        from app.models.conversation import Message
         from app.models.embedding import Embedding
-        
+
         cutoff_date = datetime.utcnow() - timedelta(days=days)
-        
+
         # Find messages from deleted conversations
         deleted_messages = self.db.query(Message).join(Conversation).filter(
             Conversation.is_deleted == True,
             Conversation.deleted_at < cutoff_date
         ).all()
-        
+
         # Delete embeddings
         deleted_count = 0
         for message in deleted_messages:
@@ -114,13 +113,13 @@ def cleanup_old_embeddings_task(self, days: int = 90):
                 Embedding.message_id == message.id
             ).delete()
             deleted_count += 1
-        
+
         self.db.commit()
-        
         logger.info(f"Cleaned up {deleted_count} embeddings")
-        
         return {"deleted_count": deleted_count}
-        
+
+    except Exception as e:
+        logger.error(f"Error cleaning up embeddings: {e}")
         self.db.rollback()
         raise
 

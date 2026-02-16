@@ -21,6 +21,22 @@ interface ComparisonStats {
     avgAssistantChars: number;
 }
 
+interface TurnSimilarity {
+    turn_index: number;
+    similarity: number | null;
+    left_preview: string;
+    right_preview: string;
+    has_left_embedding: boolean;
+    has_right_embedding: boolean;
+}
+
+interface CompareResponse {
+    compared_turns: number;
+    comparable_turns: number;
+    average_similarity: number | null;
+    turn_results: TurnSimilarity[];
+}
+
 function computeStats(messages: Message[]): ComparisonStats {
     const assistantMessages = messages.filter((m) => m.role === 'assistant');
     const totalChars = assistantMessages.reduce((acc, m) => acc + m.content.length, 0);
@@ -124,6 +140,8 @@ export default function ComparePage() {
     const [rightLoading, setRightLoading] = useState(false);
 
     const [error, setError] = useState<string | null>(null);
+    const [similarityLoading, setSimilarityLoading] = useState(false);
+    const [similarityData, setSimilarityData] = useState<CompareResponse | null>(null);
 
     useEffect(() => {
         fetchConversations();
@@ -144,6 +162,14 @@ export default function ComparePage() {
             setRightMessages([]);
         }
     }, [rightId]);
+
+    useEffect(() => {
+        if (leftId && rightId) {
+            void fetchSimilarity(leftId, rightId);
+        } else {
+            setSimilarityData(null);
+        }
+    }, [leftId, rightId]);
 
     const fetchConversations = async () => {
         setLoadingConversations(true);
@@ -177,6 +203,23 @@ export default function ComparePage() {
         }
     };
 
+    const fetchSimilarity = async (leftConversationId: string, rightConversationId: string) => {
+        setSimilarityLoading(true);
+        try {
+            const response = await api.post('/search/compare/conversations', {
+                left_conversation_id: leftConversationId,
+                right_conversation_id: rightConversationId,
+                max_turns: 20,
+            });
+            setSimilarityData(response.data);
+        } catch (err) {
+            console.error('Failed to fetch similarity', err);
+            setSimilarityData(null);
+        } finally {
+            setSimilarityLoading(false);
+        }
+    };
+
     return (
         <div className="flex flex-col h-[calc(100vh-theme(spacing.32))]">
             <div className="mb-6 flex items-center justify-between">
@@ -192,6 +235,56 @@ export default function ComparePage() {
             {error && (
                 <div className="mb-4 rounded-md border border-red-200 bg-red-50 text-red-700 px-3 py-2 text-sm">
                     {error}
+                </div>
+            )}
+
+            {(leftId && rightId) && (
+                <div className="mb-4 rounded-lg border border-gray-200 bg-white p-4">
+                    <h2 className="text-sm font-semibold text-gray-700 mb-2">Semantic Similarity Score</h2>
+                    {similarityLoading ? (
+                        <p className="text-sm text-gray-500">Computing turn-by-turn semantic similarity...</p>
+                    ) : !similarityData ? (
+                        <p className="text-sm text-gray-500">No comparison score available yet.</p>
+                    ) : (
+                        <div className="space-y-3">
+                            <div className="flex flex-wrap items-center gap-4 text-sm">
+                                <span className="rounded bg-blue-50 text-blue-700 px-2 py-1">
+                                    Compared turns: {similarityData.compared_turns}
+                                </span>
+                                <span className="rounded bg-green-50 text-green-700 px-2 py-1">
+                                    With embeddings: {similarityData.comparable_turns}
+                                </span>
+                                <span className="rounded bg-purple-50 text-purple-700 px-2 py-1">
+                                    Avg similarity: {similarityData.average_similarity != null ? `${(similarityData.average_similarity * 100).toFixed(1)}%` : 'N/A'}
+                                </span>
+                            </div>
+
+                            <div className="max-h-44 overflow-y-auto rounded border border-gray-200">
+                                <table className="w-full text-xs">
+                                    <thead className="bg-gray-50 text-gray-600">
+                                        <tr>
+                                            <th className="text-left px-2 py-1">Turn</th>
+                                            <th className="text-left px-2 py-1">Similarity</th>
+                                            <th className="text-left px-2 py-1">Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {similarityData.turn_results.map((turn) => (
+                                            <tr key={turn.turn_index} className="border-t border-gray-100">
+                                                <td className="px-2 py-1">{turn.turn_index}</td>
+                                                <td className="px-2 py-1">
+                                                    {turn.similarity != null ? `${(turn.similarity * 100).toFixed(1)}%` : 'N/A'}
+                                                </td>
+                                                <td className="px-2 py-1 text-gray-500">
+                                                    {turn.has_left_embedding && turn.has_right_embedding ? 'Compared' : 'Missing embedding'}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
 

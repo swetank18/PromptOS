@@ -1,14 +1,34 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
+import numpy as np
 
 from app.core.database import get_db
 from app.core.auth import get_current_user
 from app.models.user import User
-from app.schemas.search import SearchRequest, SearchResponse, SearchResult
+from app.models.conversation import Conversation, Message
+from app.models.embedding import Embedding
+from app.schemas.search import (
+    SearchRequest,
+    SearchResponse,
+    SearchResult,
+    ConversationCompareRequest,
+    ConversationCompareResponse,
+    TurnSimilarityResult,
+)
 from app.services.embedding_service import EmbeddingService
 
 router = APIRouter()
+
+
+def _cosine_similarity(left: list[float], right: list[float]) -> float:
+    left_arr = np.array(left, dtype=np.float32)
+    right_arr = np.array(right, dtype=np.float32)
+    left_norm = np.linalg.norm(left_arr)
+    right_norm = np.linalg.norm(right_arr)
+    if left_norm == 0.0 or right_norm == 0.0:
+        return 0.0
+    return float(np.dot(left_arr, right_arr) / (left_norm * right_norm))
 
 @router.post("/semantic", response_model=SearchResponse)
 async def semantic_search(
@@ -195,4 +215,96 @@ async def hybrid_search(
         results=final_results,
         total=len(final_results),
         search_type="hybrid"
+    )
+
+
+@router.post("/compare/conversations", response_model=ConversationCompareResponse)
+async def compare_conversations(
+    request: ConversationCompareRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    left = db.query(Conversation).filter(
+        Conversation.id == request.left_conversation_id,
+        Conversation.user_id == current_user.id,
+        Conversation.is_deleted == False,
+    ).first()
+    right = db.query(Conversation).filter(
+        Conversation.id == request.right_conversation_id,
+        Conversation.user_id == current_user.id,
+        Conversation.is_deleted == False,
+    ).first()
+
+    if not left or not right:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="One or both conversations were not found",
+        )
+
+    max_turns = max(1, min(int(request.max_turns), 100))
+
+    left_messages = db.query(Message).filter(
+        Message.conversation_id == left.id,
+        Message.role == "assistant",
+    ).order_by(Message.sequence_number.asc()).limit(max_turns).all()
+
+    right_messages = db.query(Message).filter(
+        Message.conversation_id == right.id,
+        Message.role == "assistant",
+    ).order_by(Message.sequence_number.asc()).limit(max_turns).all()
+
+    turns = min(len(left_messages), len(right_messages))
+    if turns == 0:
+        return ConversationCompareResponse(
+            left_conversation_id=left.id,
+            right_conversation_id=right.id,
+            compared_turns=0,
+            comparable_turns=0,
+            average_similarity=None,
+            turn_results=[],
+        )
+
+    message_ids = [m.id for m in left_messages[:turns]] + [m.id for m in right_messages[:turns]]
+    embedding_rows = db.query(Embedding).filter(Embedding.message_id.in_(message_ids)).all()
+    embedding_by_message = {row.message_id: row.embedding for row in embedding_rows}
+
+    turn_results: list[TurnSimilarityResult] = []
+    comparable_scores: list[float] = []
+    for idx in range(turns):
+        left_msg = left_messages[idx]
+        right_msg = right_messages[idx]
+        left_embedding = embedding_by_message.get(left_msg.id)
+        right_embedding = embedding_by_message.get(right_msg.id)
+
+        has_left = left_embedding is not None
+        has_right = right_embedding is not None
+        similarity = None
+        if has_left and has_right:
+            similarity = _cosine_similarity(left_embedding, right_embedding)
+            comparable_scores.append(similarity)
+
+        turn_results.append(
+            TurnSimilarityResult(
+                turn_index=idx + 1,
+                left_message_id=left_msg.id,
+                right_message_id=right_msg.id,
+                left_preview=left_msg.content[:220],
+                right_preview=right_msg.content[:220],
+                similarity=similarity,
+                has_left_embedding=has_left,
+                has_right_embedding=has_right,
+            )
+        )
+
+    avg_similarity = None
+    if comparable_scores:
+        avg_similarity = float(sum(comparable_scores) / len(comparable_scores))
+
+    return ConversationCompareResponse(
+        left_conversation_id=left.id,
+        right_conversation_id=right.id,
+        compared_turns=turns,
+        comparable_turns=len(comparable_scores),
+        average_similarity=avg_similarity,
+        turn_results=turn_results,
     )

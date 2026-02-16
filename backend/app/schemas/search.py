@@ -26,3 +26,29 @@ class SearchResponse(BaseModel):
     results: List[SearchResult]
     total: int
     search_type: str
+
+
+class ConversationCompareRequest(BaseModel):
+    left_conversation_id: UUID
+    right_conversation_id: UUID
+    max_turns: int = 20
+
+
+class TurnSimilarityResult(BaseModel):
+    turn_index: int
+    left_message_id: UUID
+    right_message_id: UUID
+    left_preview: str
+    right_preview: str
+    similarity: Optional[float] = None
+    has_left_embedding: bool
+    has_right_embedding: bool
+
+
+class ConversationCompareResponse(BaseModel):
+    left_conversation_id: UUID
+    right_conversation_id: UUID
+    compared_turns: int
+    comparable_turns: int
+    average_similarity: Optional[float] = None
+    turn_results: List[TurnSimilarityResult]
