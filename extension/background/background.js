@@ -6,6 +6,7 @@
 import { APIClient } from './api-client.js';
 import { QueueManager } from './queue-manager.js';
 import { SyncService } from './sync-service.js';
+import { DEFAULT_API_URL } from '../utils/constants.js';
 
 // Initialize services
 const apiClient = new APIClient();
@@ -194,7 +195,7 @@ async function getSettings() {
     syncInterval: CONFIG.SYNC_INTERVAL,
     captureMode: 'auto', // 'auto' | 'manual'
     projectId: null,
-    apiUrl: 'http://localhost:8000'
+    apiUrl: DEFAULT_API_URL
   };
 }
 
@@ -262,7 +263,7 @@ chrome.runtime.onInstalled.addListener((details) => {
         syncInterval: CONFIG.SYNC_INTERVAL,
         captureMode: 'auto',
         projectId: null,
-        apiUrl: 'http://localhost:8000'
+        apiUrl: DEFAULT_API_URL
       }
     });
 

@@ -1,6 +1,7 @@
 /**
  * Extension Popup Script
  */
+import { DEFAULT_API_URL } from '../utils/constants.js';
 
 // DOM Elements
 const authSection = document.getElementById('auth-section');
@@ -271,7 +272,7 @@ function updateUI(status) {
     // Update settings
     if (status.settings) {
         document.getElementById('auto-sync').checked = status.settings.autoSync !== false;
-        document.getElementById('api-url').value = status.settings.apiUrl || 'http://localhost:8000';
+        document.getElementById('api-url').value = status.settings.apiUrl || DEFAULT_API_URL;
     }
 }
 

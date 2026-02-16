@@ -1,6 +1,7 @@
 /**
  * API Client for backend communication
  */
+import { DEFAULT_API_URL } from '../utils/constants.js';
 
 export class APIClient {
     constructor() {
@@ -11,7 +12,7 @@ export class APIClient {
 
     async init() {
         const settings = await chrome.storage.sync.get(['settings', 'authToken']);
-        this.baseURL = settings.settings?.apiUrl || 'http://localhost:8000';
+        this.baseURL = settings.settings?.apiUrl || DEFAULT_API_URL;
         this.token = settings.authToken;
     }
 

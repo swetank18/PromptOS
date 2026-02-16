@@ -1,46 +1,93 @@
 services:
   - type: web
-    name: docex-backend
-    plan: free
-    env: python
+    name: promptos-api
+    runtime: python
+    plan: starter
+    rootDir: .
     buildCommand: "./scripts/build.sh"
     startCommand: "cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.0"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: promptos-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: promptos-redis
+          property: connectionString
+      - key: CELERY_BROKER_URL
+        fromService:
+          type: redis
+          name: promptos-redis
+          property: connectionString
+      - key: CELERY_RESULT_BACKEND
+        fromService:
+          type: redis
+          name: promptos-redis
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DEBUG
+        value: "false"
+      - key: CORS_ORIGINS
+        sync: false
+
+  - type: worker
+    name: promptos-worker
+    runtime: python
+    plan: starter
+    rootDir: .
+    buildCommand: "./scripts/build.sh"
+    startCommand: "cd backend && celery -A app.tasks.celery_app worker --loglevel=info"
     envVars:
       - key: DATABASE_URL
         fromDatabase:
-          name: docex-db
+          name: promptos-db
           property: connectionString
-      - key: LOG_LEVEL
-        value: info
-      - key: BACKEND_CORS_ORIGINS
-        value: '["*"]'
-      - key: PYTHON_VERSION
-        value: 3.11.0
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: promptos-redis
+          property: connectionString
+      - key: CELERY_BROKER_URL
+        fromService:
+          type: redis
+          name: promptos-redis
+          property: connectionString
+      - key: CELERY_RESULT_BACKEND
+        fromService:
+          type: redis
+          name: promptos-redis
+          property: connectionString
+      - key: DEBUG
+        value: "false"
 
-  # Celery Worker (Commented out for Free Tier)
-  # - type: worker
-  #   name: docex-worker
-  #   env: python
-  #   buildCommand: "./scripts/build.sh"
-  #   startCommand: "celery -A app.worker worker --loglevel=info"
-  #   envVars:
-  #     - key: DATABASE_URL
-  #       fromDatabase:
-  #         name: docex-db
-  #         property: connectionString
-  #     - key: REDIS_URL
-  #       fromService:
-  #         type: redis
-  #         name: docex-redis
-  #         property: connectionString
+  - type: web
+    name: promptos-web
+    runtime: node
+    plan: starter
+    rootDir: .
+    buildCommand: "npm ci && npm run build"
+    startCommand: "npm run start -- -p $PORT"
+    envVars:
+      - key: NODE_VERSION
+        value: "20.18.0"
+      - key: NEXT_PUBLIC_API_URL
+        sync: false
+
+  - type: redis
+    name: promptos-redis
+    plan: starter
+    ipAllowList: []
 
 databases:
-  - name: docex-db
-    databaseName: docex
-    user: docex_user
-    plan: free # or starter
-    ipAllowList: [] # allow all
+  - name: promptos-db
+    databaseName: promptos
+    user: promptos_user
+    plan: starter
+    ipAllowList: []
 
-  # Redis (Commented out for Free Tier)
-  # - name: docex-redis
-  #   plan: free # or starter
