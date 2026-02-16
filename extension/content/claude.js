@@ -1,6 +1,5 @@
 /**
  * Claude Content Script
- * Extracts conversations from claude.ai
  */
 
 class ClaudeExtractor {
@@ -9,12 +8,7 @@ class ClaudeExtractor {
         this.messages = new Map();
         this.observer = null;
         this.captureButton = null;
-
-        console.log('[Claude] Extractor initialized, conversation:', this.conversationId);
-
-        if (this.conversationId) {
-            this.init();
-        }
+        this.init();
     }
 
     init() {
@@ -24,13 +18,17 @@ class ClaudeExtractor {
     }
 
     extractConversationId() {
-        const match = window.location.pathname.match(/\/chat\/([a-f0-9-]+)/);
-        return match ? match[1] : null;
+        const strict = window.location.pathname.match(/\/chat\/([a-zA-Z0-9_-]+)/);
+        if (strict) return strict[1];
+        const parts = window.location.pathname.split('/').filter(Boolean);
+        return parts[parts.length - 1] || `claude-${Date.now()}`;
     }
 
     addCaptureButton() {
+        if (this.captureButton) return;
+
         const button = document.createElement('button');
-        button.textContent = '💾 Capture';
+        button.textContent = 'Capture';
         button.style.cssText = `
       position: fixed;
       top: 10px;
@@ -46,7 +44,20 @@ class ClaudeExtractor {
       font-weight: 500;
     `;
 
-        button.addEventListener('click', () => this.captureConversation());
+        button.addEventListener('click', async () => {
+            const result = await this.captureConversation();
+            if (result?.success) {
+                button.textContent = 'Captured';
+                button.style.background = '#10b981';
+            } else {
+                button.textContent = 'Retry';
+                button.style.background = '#ef4444';
+            }
+            setTimeout(() => {
+                button.textContent = 'Capture';
+                button.style.background = '#cc785c';
+            }, 1600);
+        });
 
         document.body.appendChild(button);
         this.captureButton = button;
@@ -54,216 +65,110 @@ class ClaudeExtractor {
 
     setupObserver() {
         const container = document.querySelector('main') || document.body;
-
-        this.observer = new MutationObserver((mutations) => {
-            for (const mutation of mutations) {
-                if (mutation.addedNodes.length) {
-                    this.processNewNodes(mutation.addedNodes);
-                }
-            }
-        });
-
-        this.observer.observe(container, {
-            childList: true,
-            subtree: true
-        });
-    }
-
-    processNewNodes(nodes) {
-        for (const node of nodes) {
-            if (node.nodeType === Node.ELEMENT_NODE) {
-                // Claude uses different selectors
-                const messages = node.querySelectorAll('[data-test-render-count], .font-claude-message');
-                messages.forEach(msg => this.extractMessage(msg));
-            }
-        }
+        if (this.observer) this.observer.disconnect();
+        this.observer = new MutationObserver(() => this.extractAllMessages());
+        this.observer.observe(container, { childList: true, subtree: true });
     }
 
     extractAllMessages() {
-        // Claude's message structure
-        const messageElements = document.querySelectorAll('[data-test-render-count]');
-        console.log(`[Claude] Found ${messageElements.length} messages`);
-
-        messageElements.forEach((el, idx) => this.extractMessage(el, idx));
+        const nodes = document.querySelectorAll(
+            '[data-test-render-count], [data-testid*="conversation-turn"], [class*="message"]'
+        );
+        nodes.forEach((el, idx) => this.extractMessage(el, idx));
     }
 
-    extractMessage(element, index = null) {
-        try {
-            // Generate ID from index or content hash
-            const messageId = element.getAttribute('data-message-id') ||
-                `msg-${index || this.messages.size}`;
+    extractMessage(element, index = 0) {
+        const messageId = element.getAttribute('data-message-id') || element.id || `claude-msg-${index}`;
+        if (this.messages.has(messageId)) return;
 
-            if (this.messages.has(messageId)) {
-                return;
-            }
+        const isUser = element.getAttribute('data-is-user-message') === 'true' ||
+            element.textContent?.trim().startsWith('Human:');
+        const role = isUser ? 'user' : 'assistant';
 
-            // Determine role
-            const isUser = element.querySelector('[data-is-user-message="true"]') !== null;
-            const role = isUser ? 'user' : 'assistant';
+        const contentEl = element.querySelector('.font-claude-message, [class*="message"], [class*="prose"]') || element;
+        const content = (contentEl.textContent || '').trim();
+        if (!content) return;
 
-            // Find content
-            const contentEl = element.querySelector('.font-claude-message, [class*="message"]');
-            if (!contentEl) return;
-
-            const message = {
-                id: messageId,
-                role: role,
-                content: this.extractContent(contentEl),
-                timestamp: new Date().toISOString(),
-                artifacts: this.extractArtifacts(element)
-            };
-
-            this.messages.set(messageId, message);
-            console.log('[Claude] Extracted message:', message.role, message.content.substring(0, 50));
-
-        } catch (error) {
-            console.error('[Claude] Error extracting message:', error);
-        }
-    }
-
-    extractContent(element) {
-        const clone = element.cloneNode(true);
-
-        // Process code blocks
-        clone.querySelectorAll('pre code').forEach(block => {
-            const lang = block.className.match(/language-(\w+)/)?.[1] || '';
-            const code = block.textContent;
-            block.textContent = `\`\`\`${lang}\n${code}\n\`\`\``;
+        this.messages.set(messageId, {
+            id: messageId,
+            role,
+            content,
+            timestamp: new Date().toISOString(),
         });
-
-        // Process inline code
-        clone.querySelectorAll('code:not(pre code)').forEach(code => {
-            code.textContent = `\`${code.textContent}\``;
-        });
-
-        return clone.textContent.trim();
-    }
-
-    extractArtifacts(element) {
-        // Claude artifacts are special interactive components
-        const artifacts = [];
-        const artifactElements = element.querySelectorAll('[data-artifact-id]');
-
-        artifactElements.forEach(art => {
-            artifacts.push({
-                id: art.getAttribute('data-artifact-id'),
-                type: art.getAttribute('data-artifact-type') || 'code',
-                title: art.querySelector('[data-artifact-title]')?.textContent || 'Artifact',
-                content: art.querySelector('code')?.textContent || art.textContent
-            });
-        });
-
-        return artifacts;
     }
 
     getConversationTitle() {
-        // Try to find title in Claude's UI
-        const titleEl = document.querySelector('h1, [class*="conversation-title"]');
-        if (titleEl && titleEl.textContent.trim()) {
-            return titleEl.textContent.trim();
-        }
-
-        // Fallback
-        const firstUserMessage = Array.from(this.messages.values())
-            .find(m => m.role === 'user');
-
-        if (firstUserMessage) {
-            return firstUserMessage.content.substring(0, 100);
-        }
-
-        return 'Untitled Conversation';
+        const title = document.querySelector('h1')?.textContent?.trim();
+        if (title) return title;
+        const firstUser = Array.from(this.messages.values()).find((m) => m.role === 'user');
+        return firstUser ? firstUser.content.slice(0, 100) : 'Untitled Conversation';
     }
 
     async captureConversation() {
-        try {
-            if (!this.conversationId) {
-                alert('No conversation ID found. Please open a conversation.');
-                return;
-            }
+        this.extractAllMessages();
 
-            this.extractAllMessages();
-
-            if (this.messages.size === 0) {
-                alert('No messages found in this conversation.');
-                return;
-            }
-
-            const conversation = {
-                external_id: this.conversationId,
-                title: this.getConversationTitle(),
-                metadata: {
-                    source: 'claude',
-                    url: window.location.href,
-                    captured_at: new Date().toISOString()
-                }
-            };
-
-            const messages = Array.from(this.messages.values()).map((msg, idx) => ({
-                role: msg.role,
-                content: msg.content,
-                sequence_number: idx,
-                external_id: msg.id,
-                metadata: {
-                    timestamp: msg.timestamp,
-                    artifacts: msg.artifacts
-                }
-            }));
-
-            const response = await chrome.runtime.sendMessage({
-                type: 'CAPTURE_CONVERSATION',
-                payload: {
-                    conversation,
-                    messages,
-                    agent: 'claude'
-                }
-            });
-
-            if (response.error) {
-                alert(`Error: ${response.error}`);
-            } else {
-                this.captureButton.textContent = '✓ Captured';
-                this.captureButton.style.background = '#10b981';
-
-                setTimeout(() => {
-                    this.captureButton.textContent = '💾 Capture';
-                    this.captureButton.style.background = '#cc785c';
-                }, 2000);
-            }
-
-        } catch (error) {
-            console.error('[Claude] Capture error:', error);
-            alert(`Failed to capture: ${error.message}`);
+        if (this.messages.size === 0) {
+            return { error: 'No messages found. Scroll the thread and try again.' };
         }
+
+        const conversation = {
+            external_id: this.conversationId,
+            title: this.getConversationTitle(),
+            metadata: {
+                source: 'claude',
+                url: window.location.href,
+                captured_at: new Date().toISOString()
+            }
+        };
+
+        const messages = Array.from(this.messages.values()).map((msg, idx) => ({
+            role: msg.role,
+            content: msg.content,
+            sequence_number: idx,
+            external_id: msg.id,
+            metadata: { timestamp: msg.timestamp }
+        }));
+
+        const response = await chrome.runtime.sendMessage({
+            type: 'CAPTURE_CONVERSATION',
+            payload: { conversation, messages, agent: 'claude' }
+        });
+
+        if (response?.error) return { error: response.error };
+        return { success: true, messageCount: messages.length };
     }
 }
 
-// Initialize
+const initClaudeExtractor = () => {
+    if (!window.__claudeExtractor) {
+        window.__claudeExtractor = new ClaudeExtractor();
+    } else {
+        window.__claudeExtractor.extractAllMessages();
+    }
+};
+
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
-        new ClaudeExtractor();
-    });
+    document.addEventListener('DOMContentLoaded', initClaudeExtractor);
 } else {
-    new ClaudeExtractor();
+    initClaudeExtractor();
 }
 
-// Handle SPA navigation
-let lastUrl = location.href;
+let claudeLastUrl = location.href;
 new MutationObserver(() => {
-    const url = location.href;
-    if (url !== lastUrl) {
-        lastUrl = url;
-        console.log('[Claude] URL changed, reinitializing');
-        new ClaudeExtractor();
+    if (location.href !== claudeLastUrl) {
+        claudeLastUrl = location.href;
+        window.__claudeExtractor = null;
+        initClaudeExtractor();
     }
 }).observe(document, { subtree: true, childList: true });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message?.type === 'CAPTURE_NOW') {
-        const extractor = new ClaudeExtractor();
-        extractor.captureConversation()
-            .then(() => sendResponse({ success: true }))
-            .catch((error) => sendResponse({ error: error.message }));
-        return true;
-    }
-    return false;
+    if (message?.type !== 'CAPTURE_NOW') return false;
+
+    initClaudeExtractor();
+    window.__claudeExtractor.captureConversation()
+        .then((result) => sendResponse(result || { error: 'Capture returned no result' }))
+        .catch((error) => sendResponse({ error: error.message }));
+
+    return true;
 });

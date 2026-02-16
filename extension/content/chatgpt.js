@@ -1,6 +1,6 @@
 /**
  * ChatGPT Content Script
- * Extracts conversations from chat.openai.com
+ * Extracts conversations from chat.openai.com and chatgpt.com
  */
 
 class ChatGPTExtractor {
@@ -9,48 +9,31 @@ class ChatGPTExtractor {
         this.messages = new Map();
         this.observer = null;
         this.captureButton = null;
-
-        console.log('[ChatGPT] Extractor initialized, conversation:', this.conversationId);
-
-        if (this.conversationId) {
-            this.init();
-        }
+        this.init();
     }
 
-    /**
-     * Initialize extractor
-     */
     init() {
-        // Add capture button to UI
         this.addCaptureButton();
-
-        // Set up mutation observer for new messages
         this.setupObserver();
-
-        // Initial extraction
         this.extractAllMessages();
     }
 
-    /**
-     * Extract conversation ID from URL
-     */
     extractConversationId() {
-        const match = window.location.pathname.match(/\/c\/([a-f0-9-]+)/);
-        return match ? match[1] : null;
+        const strict = window.location.pathname.match(/\/c\/([a-zA-Z0-9_-]+)/);
+        if (strict) return strict[1];
+
+        const parts = window.location.pathname.split('/').filter(Boolean);
+        const tail = parts[parts.length - 1];
+        if (tail && tail !== 'c') return tail;
+
+        return `chatgpt-${Date.now()}`;
     }
 
-    /**
-     * Add capture button to ChatGPT UI
-     */
     addCaptureButton() {
-        // Find the header area
-        const header = document.querySelector('header');
-        if (!header) return;
+        if (this.captureButton) return;
 
-        // Create button
         const button = document.createElement('button');
-        button.textContent = '💾 Capture';
-        button.className = 'btn btn-neutral';
+        button.textContent = 'Capture';
         button.style.cssText = `
       position: fixed;
       top: 10px;
@@ -66,282 +49,158 @@ class ChatGPTExtractor {
       font-weight: 500;
     `;
 
-        button.addEventListener('click', () => this.captureConversation());
+        button.addEventListener('click', async () => {
+            const result = await this.captureConversation();
+            if (result?.success) {
+                button.textContent = 'Captured';
+                button.style.background = '#10b981';
+                setTimeout(() => {
+                    button.textContent = 'Capture';
+                    button.style.background = '#10a37f';
+                }, 1500);
+            } else {
+                button.textContent = 'Retry';
+                button.style.background = '#ef4444';
+                setTimeout(() => {
+                    button.textContent = 'Capture';
+                    button.style.background = '#10a37f';
+                }, 1800);
+            }
+        });
 
         document.body.appendChild(button);
         this.captureButton = button;
     }
 
-    /**
-     * Set up MutationObserver to detect new messages
-     */
     setupObserver() {
-        const container = document.querySelector('main');
-        if (!container) {
-            console.warn('[ChatGPT] Main container not found');
-            return;
-        }
+        const container = document.querySelector('main') || document.body;
+        if (!container) return;
 
-        this.observer = new MutationObserver((mutations) => {
-            for (const mutation of mutations) {
-                if (mutation.addedNodes.length) {
-                    this.processNewNodes(mutation.addedNodes);
-                }
-            }
-        });
-
-        this.observer.observe(container, {
-            childList: true,
-            subtree: true
-        });
+        if (this.observer) this.observer.disconnect();
+        this.observer = new MutationObserver(() => this.extractAllMessages());
+        this.observer.observe(container, { childList: true, subtree: true });
     }
 
-    /**
-     * Process newly added DOM nodes
-     */
-    processNewNodes(nodes) {
-        for (const node of nodes) {
-            if (node.nodeType === Node.ELEMENT_NODE) {
-                // Check if it's a message element
-                if (node.hasAttribute('data-message-author-role')) {
-                    this.extractMessage(node);
-                }
-
-                // Check children
-                const messages = node.querySelectorAll('[data-message-author-role]');
-                messages.forEach(msg => this.extractMessage(msg));
-            }
-        }
-    }
-
-    /**
-     * Extract all messages from current page
-     */
     extractAllMessages() {
-        const messageElements = document.querySelectorAll('[data-message-author-role]');
-        console.log(`[ChatGPT] Found ${messageElements.length} messages`);
+        const nodes = document.querySelectorAll(
+            '[data-message-author-role], article[data-testid*="conversation-turn"], article'
+        );
 
-        messageElements.forEach(el => this.extractMessage(el));
+        nodes.forEach((el, idx) => this.extractMessage(el, idx));
     }
 
-    /**
-     * Extract single message
-     */
-    extractMessage(element) {
+    extractMessage(element, index = 0) {
         try {
-            const role = element.getAttribute('data-message-author-role');
-            const messageId = element.getAttribute('data-message-id');
+            const role = element.getAttribute('data-message-author-role') ||
+                (element.textContent?.includes('You said:') ? 'user' : 'assistant');
 
-            if (!messageId || this.messages.has(messageId)) {
-                return; // Already extracted
-            }
+            const messageId = element.getAttribute('data-message-id') ||
+                element.id ||
+                `chatgpt-msg-${index}`;
 
-            // Find content container
-            const contentEl = element.querySelector('.markdown, [class*="markdown"]');
-            if (!contentEl) return;
+            if (!messageId || this.messages.has(messageId)) return;
 
-            const message = {
+            const contentEl = element.querySelector(
+                '.markdown, [class*="markdown"], [data-message-content], div[class*="prose"]'
+            ) || element;
+
+            const content = this.extractContent(contentEl);
+            if (!content) return;
+
+            this.messages.set(messageId, {
                 id: messageId,
-                role: role, // 'user' or 'assistant'
-                content: this.extractContent(contentEl),
-                timestamp: this.extractTimestamp(element),
-                model: this.extractModel(element)
-            };
-
-            this.messages.set(messageId, message);
-            console.log('[ChatGPT] Extracted message:', message.role, message.content.substring(0, 50));
-
+                role: role === 'user' ? 'user' : 'assistant',
+                content,
+                timestamp: new Date().toISOString(),
+                model: 'gpt-4'
+            });
         } catch (error) {
-            console.error('[ChatGPT] Error extracting message:', error);
+            console.error('[ChatGPT] extractMessage error', error);
         }
     }
 
-    /**
-     * Extract content with formatting preserved
-     */
     extractContent(element) {
-        const clone = element.cloneNode(true);
-
-        // Process code blocks
-        clone.querySelectorAll('pre code').forEach(block => {
-            const lang = Array.from(block.classList)
-                .find(cls => cls.startsWith('language-'))
-                ?.replace('language-', '') || '';
-
-            const code = block.textContent;
-            block.textContent = `\`\`\`${lang}\n${code}\n\`\`\``;
-        });
-
-        // Process inline code
-        clone.querySelectorAll('code:not(pre code)').forEach(code => {
-            code.textContent = `\`${code.textContent}\``;
-        });
-
-        // Process lists
-        clone.querySelectorAll('ul, ol').forEach(list => {
-            const items = Array.from(list.querySelectorAll('li'));
-            const prefix = list.tagName === 'UL' ? '- ' : '';
-            items.forEach((item, idx) => {
-                const num = list.tagName === 'OL' ? `${idx + 1}. ` : prefix;
-                item.textContent = num + item.textContent;
-            });
-        });
-
-        return clone.textContent.trim();
+        return (element.textContent || '').trim();
     }
 
-    /**
-     * Extract timestamp (if available)
-     */
-    extractTimestamp(element) {
-        // ChatGPT doesn't always show timestamps
-        // Try to find time element
-        const timeEl = element.querySelector('time');
-        if (timeEl) {
-            return timeEl.getAttribute('datetime') || new Date().toISOString();
-        }
-        return new Date().toISOString();
-    }
-
-    /**
-     * Extract model information
-     */
-    extractModel(element) {
-        // Try to find model indicator
-        const modelEl = element.querySelector('[class*="model"]');
-        if (modelEl) {
-            return modelEl.textContent.trim();
-        }
-
-        // Default to GPT-4 if not found (common case)
-        return 'gpt-4';
-    }
-
-    /**
-     * Get conversation title
-     */
     getConversationTitle() {
-        // Try multiple selectors
-        const selectors = [
-            'h1',
-            '[class*="conversation-title"]',
-            'title'
-        ];
+        const title = document.querySelector('h1')?.textContent?.trim();
+        if (title) return title;
 
-        for (const selector of selectors) {
-            const el = document.querySelector(selector);
-            if (el && el.textContent.trim()) {
-                return el.textContent.trim();
-            }
-        }
-
-        // Fallback: use first user message
-        const firstUserMessage = Array.from(this.messages.values())
-            .find(m => m.role === 'user');
-
-        if (firstUserMessage) {
-            return firstUserMessage.content.substring(0, 100);
-        }
-
-        return 'Untitled Conversation';
+        const firstUser = Array.from(this.messages.values()).find((m) => m.role === 'user');
+        return firstUser ? firstUser.content.slice(0, 100) : 'Untitled Conversation';
     }
 
-    /**
-     * Capture and send conversation
-     */
     async captureConversation() {
-        try {
-            if (!this.conversationId) {
-                alert('No conversation ID found. Please open a conversation.');
-                return;
-            }
+        this.extractAllMessages();
 
-            // Re-extract to get latest messages
-            this.extractAllMessages();
-
-            if (this.messages.size === 0) {
-                alert('No messages found in this conversation.');
-                return;
-            }
-
-            const conversation = {
-                external_id: this.conversationId,
-                title: this.getConversationTitle(),
-                metadata: {
-                    source: 'chatgpt',
-                    url: window.location.href,
-                    captured_at: new Date().toISOString()
-                }
-            };
-
-            const messages = Array.from(this.messages.values()).map((msg, idx) => ({
-                role: msg.role,
-                content: msg.content,
-                sequence_number: idx,
-                external_id: msg.id,
-                model: msg.model,
-                metadata: {
-                    timestamp: msg.timestamp
-                }
-            }));
-
-            // Send to background script
-            const response = await chrome.runtime.sendMessage({
-                type: 'CAPTURE_CONVERSATION',
-                payload: {
-                    conversation,
-                    messages,
-                    agent: 'chatgpt'
-                }
-            });
-
-            if (response.error) {
-                alert(`Error: ${response.error}`);
-            } else {
-                // Update button to show success
-                this.captureButton.textContent = '✓ Captured';
-                this.captureButton.style.background = '#10b981';
-
-                setTimeout(() => {
-                    this.captureButton.textContent = '💾 Capture';
-                    this.captureButton.style.background = '#10a37f';
-                }, 2000);
-            }
-
-        } catch (error) {
-            console.error('[ChatGPT] Capture error:', error);
-            alert(`Failed to capture: ${error.message}`);
+        if (!this.conversationId) {
+            return { error: 'No conversation detected on this page.' };
         }
+
+        if (this.messages.size === 0) {
+            return { error: 'No messages found. Scroll the thread and try again.' };
+        }
+
+        const conversation = {
+            external_id: this.conversationId,
+            title: this.getConversationTitle(),
+            metadata: {
+                source: 'chatgpt',
+                url: window.location.href,
+                captured_at: new Date().toISOString()
+            }
+        };
+
+        const messages = Array.from(this.messages.values()).map((msg, idx) => ({
+            role: msg.role,
+            content: msg.content,
+            sequence_number: idx,
+            external_id: msg.id,
+            model: msg.model,
+            metadata: { timestamp: msg.timestamp }
+        }));
+
+        const response = await chrome.runtime.sendMessage({
+            type: 'CAPTURE_CONVERSATION',
+            payload: { conversation, messages, agent: 'chatgpt' }
+        });
+
+        if (response?.error) return { error: response.error };
+        return { success: true, messageCount: messages.length };
     }
 }
 
-// Initialize when DOM is ready
+const initExtractor = () => {
+    if (!window.__chatgptExtractor) {
+        window.__chatgptExtractor = new ChatGPTExtractor();
+    } else {
+        window.__chatgptExtractor.extractAllMessages();
+    }
+};
+
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
-        new ChatGPTExtractor();
-    });
+    document.addEventListener('DOMContentLoaded', initExtractor);
 } else {
-    new ChatGPTExtractor();
+    initExtractor();
 }
 
-// Handle SPA navigation
 let lastUrl = location.href;
 new MutationObserver(() => {
-    const url = location.href;
-    if (url !== lastUrl) {
-        lastUrl = url;
-        console.log('[ChatGPT] URL changed, reinitializing');
-        new ChatGPTExtractor();
+    if (location.href !== lastUrl) {
+        lastUrl = location.href;
+        window.__chatgptExtractor = null;
+        initExtractor();
     }
 }).observe(document, { subtree: true, childList: true });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message?.type === 'CAPTURE_NOW') {
-        const extractor = new ChatGPTExtractor();
-        extractor.captureConversation()
-            .then(() => sendResponse({ success: true }))
-            .catch((error) => sendResponse({ error: error.message }));
-        return true;
-    }
-    return false;
+    if (message?.type !== 'CAPTURE_NOW') return false;
+
+    initExtractor();
+    window.__chatgptExtractor.captureConversation()
+        .then((result) => sendResponse(result || { error: 'Capture returned no result' }))
+        .catch((error) => sendResponse({ error: error.message }));
+
+    return true;
 });

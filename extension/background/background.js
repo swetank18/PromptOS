@@ -82,6 +82,9 @@ async function handleCaptureConversation(payload, sender) {
     if (!conversation || !messages || !agent) {
       throw new Error('Invalid payload: missing required fields');
     }
+    if (!Array.isArray(messages) || messages.length === 0) {
+      throw new Error('No messages detected on this page');
+    }
 
     // Get current settings
     const settings = await getSettings();

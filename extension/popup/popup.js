@@ -156,10 +156,15 @@ async function handleCapture() {
             type: 'CAPTURE_NOW'
         });
 
-        if (response?.error) {
+        if (!response) {
+            showMessage('No response from page. Refresh the tab and try again.', 'error');
+        } else if (response.error) {
             showMessage(response.error, 'error');
+        } else if (response.success) {
+            const count = response.messageCount || 0;
+            showMessage(`Captured ${count} messages`, 'success');
         } else {
-            showMessage('Conversation captured!', 'success');
+            showMessage('Capture did not complete. Open extension logs for details.', 'error');
         }
     } catch (error) {
         showMessage('Capture failed: ' + error.message, 'error');
