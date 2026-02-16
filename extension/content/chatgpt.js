@@ -334,3 +334,14 @@ new MutationObserver(() => {
         new ChatGPTExtractor();
     }
 }).observe(document, { subtree: true, childList: true });
+
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type === 'CAPTURE_NOW') {
+        const extractor = new ChatGPTExtractor();
+        extractor.captureConversation()
+            .then(() => sendResponse({ success: true }))
+            .catch((error) => sendResponse({ error: error.message }));
+        return true;
+    }
+    return false;
+});

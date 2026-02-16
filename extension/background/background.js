@@ -38,6 +38,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         .catch(error => sendResponse({ error: error.message }));
       return true;
 
+    case 'LOGIN':
+      apiClient.login(message.payload?.email, message.payload?.password)
+        .then(result => sendResponse({ success: true, ...result }))
+        .catch(error => sendResponse({ error: error.message }));
+      return true;
+
+    case 'REGISTER':
+      apiClient.register(
+        message.payload?.email,
+        message.payload?.password,
+        message.payload?.name
+      )
+        .then(result => sendResponse({ success: true, ...result }))
+        .catch(error => sendResponse({ error: error.message }));
+      return true;
+
     case 'GET_STATUS':
       getExtensionStatus()
         .then(sendResponse)
@@ -70,18 +86,25 @@ async function handleCaptureConversation(payload, sender) {
     // Get current settings
     const settings = await getSettings();
     
-    // Add metadata
+    // Normalize payload to backend schema (ConversationCreate)
     const enrichedData = {
-      conversation: {
-        ...conversation,
-        agent_id: agent,
+      agent_id: agent,
+      title: conversation.title || 'Untitled Conversation',
+      external_id: conversation.external_id || null,
+      project_id: conversation.project_id || null,
+      metadata: {
+        ...(conversation.metadata || {}),
         captured_at: new Date().toISOString(),
         source_url: sender.tab?.url || sender.url
       },
       messages: messages.map((msg, idx) => ({
         ...msg,
-        sequence_number: idx,
-        captured_at: new Date().toISOString()
+        role: msg.role || 'assistant',
+        sequence_number: Number.isInteger(msg.sequence_number) ? msg.sequence_number : idx,
+        metadata: {
+          ...(msg.metadata || {}),
+          captured_at: new Date().toISOString()
+        }
       }))
     };
 
@@ -241,9 +264,7 @@ chrome.runtime.onInstalled.addListener((details) => {
     });
 
     // Open onboarding page
-    chrome.tabs.create({
-      url: 'popup/onboarding.html'
-    });
+    chrome.tabs.create({ url: 'popup/index.html' });
   }
 });
 

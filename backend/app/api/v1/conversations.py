@@ -7,6 +7,7 @@ from app.core.database import get_db
 from app.core.auth import get_current_user
 from app.models.user import User
 from app.models.conversation import Conversation, Message
+from app.models.agent import Agent
 from app.schemas.conversation import (
     ConversationCreate,
     ConversationResponse,
@@ -20,6 +21,23 @@ from app.tasks.embedding_tasks import generate_embeddings_task, run_sync_embeddi
 
 router = APIRouter()
 
+
+def _resolve_agent_id(db: Session, raw_agent_id: UUID | str) -> UUID:
+    if isinstance(raw_agent_id, UUID):
+        return raw_agent_id
+
+    # Extension adapters often send agent name keys (e.g., "chatgpt")
+    agent = db.query(Agent).filter(Agent.name == raw_agent_id).first()
+    if agent:
+        return agent.id
+
+    # Fallback: create an agent entry dynamically for unknown source keys
+    display_name = str(raw_agent_id).replace("_", " ").replace("-", " ").title()
+    agent = Agent(name=str(raw_agent_id), display_name=display_name, metadata={})
+    db.add(agent)
+    db.flush()
+    return agent.id
+
 @router.post("/", response_model=ConversationResponse, status_code=status.HTTP_201_CREATED)
 async def create_conversation(
     conversation_data: ConversationCreate,
@@ -31,9 +49,10 @@ async def create_conversation(
     Create a new conversation with messages
     """
     # Create conversation
+    agent_id = _resolve_agent_id(db, conversation_data.agent_id)
     conversation = Conversation(
         user_id=current_user.id,
-        agent_id=conversation_data.agent_id,
+        agent_id=agent_id,
         project_id=conversation_data.project_id,
         external_id=conversation_data.external_id,
         title=conversation_data.title or "Untitled Conversation",
@@ -94,11 +113,12 @@ async def batch_create_conversations(
     for conv_data in batch_data.conversations:
         try:
             # Check if conversation already exists
+            agent_id = _resolve_agent_id(db, conv_data.agent_id)
             existing = None
             if conv_data.external_id:
                 existing = db.query(Conversation).filter(
                     Conversation.user_id == current_user.id,
-                    Conversation.agent_id == conv_data.agent_id,
+                    Conversation.agent_id == agent_id,
                     Conversation.external_id == conv_data.external_id
                 ).first()
             
@@ -139,7 +159,7 @@ async def batch_create_conversations(
                 # Create new conversation
                 conversation = Conversation(
                     user_id=current_user.id,
-                    agent_id=conv_data.agent_id,
+                    agent_id=agent_id,
                     project_id=conv_data.project_id,
                     external_id=conv_data.external_id,
                     title=conv_data.title or "Untitled Conversation",

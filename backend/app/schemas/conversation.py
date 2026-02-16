@@ -32,7 +32,7 @@ class ConversationBase(BaseModel):
     metadata: Optional[Dict[str, Any]] = {}
 
 class ConversationCreate(ConversationBase):
-    agent_id: UUID
+    agent_id: UUID | str
     messages: List[MessageCreate] = []
 
 class ConversationUpdate(BaseModel):

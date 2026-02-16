@@ -256,3 +256,14 @@ new MutationObserver(() => {
         new ClaudeExtractor();
     }
 }).observe(document, { subtree: true, childList: true });
+
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type === 'CAPTURE_NOW') {
+        const extractor = new ClaudeExtractor();
+        extractor.captureConversation()
+            .then(() => sendResponse({ success: true }))
+            .catch((error) => sendResponse({ error: error.message }));
+        return true;
+    }
+    return false;
+});
