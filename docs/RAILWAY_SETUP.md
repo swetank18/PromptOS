@@ -15,9 +15,9 @@ This guide deploys PromptOS using Railway free trial credits.
 ## 2) Backend Service
 
 Service settings:
-- Root Directory: `/`
-- Build Command: `pip install -r backend/requirements.txt`
-- Start Command: `cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+- Root Directory: `/backend`
+- Build Command: *(leave empty, use Nixpacks auto-detect)*
+- Start Command: *(leave empty, uses `backend/railway.json`)*
 
 Environment variables:
 - `DATABASE_URL` = `${{Postgres.DATABASE_URL}}`
@@ -31,9 +31,9 @@ Environment variables:
 ## 3) Worker Service
 
 Service settings:
-- Root Directory: `/`
-- Build Command: `pip install -r backend/requirements.txt`
-- Start Command: `cd backend && celery -A app.tasks.celery_app worker --loglevel=info --concurrency=2`
+- Root Directory: `/backend`
+- Build Command: *(leave empty, use Nixpacks auto-detect)*
+- Start Command: `celery -A app.tasks.celery_app worker --loglevel=info --concurrency=2`
 
 Environment variables:
 - same as backend (`DATABASE_URL`, `REDIS_URL`, `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`, `DEBUG=false`)
@@ -77,3 +77,4 @@ Upload `promptos-extension.zip` to Chrome Web Store.
 - 502/503 on backend: check `DATABASE_URL` and schema init step.
 - Embeddings not processing: verify worker is running and `REDIS_URL`/Celery vars are present.
 - Extension login/capture fails: verify popup API URL points to deployed backend.
+- `/bin/bash: pip: command not found`: backend is being built from repo root (Node context). Set backend service Root Directory to `/backend`.
