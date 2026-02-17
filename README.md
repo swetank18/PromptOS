@@ -139,3 +139,6 @@ Contributions welcome! Please read CONTRIBUTING.md for guidelines.
 ## 📧 Support
 
 For issues and questions, please open a GitHub issue.
+
+Railway deployment guide: docs/RAILWAY_SETUP.md
+
